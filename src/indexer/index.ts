@@ -29,6 +29,7 @@ export interface IndexerConfig {
     pollIntervalMs: number;
     checkpointIntervalBlocks: number;
     mergePartialBundles: boolean;
+    backupIntervalMs?: number;
   };
   storage: {
     dataDir: string;
@@ -148,11 +149,19 @@ export class UniversalIndexer {
     const startTime = Date.now();
     let totalProcessed = 0;
     let lastLogTime = Date.now();
+    let lastBackupTime = Date.now();
+    const backupInterval = this.config.indexer.backupIntervalMs || 15 * 60 * 1000; // Default 15 mins
 
     // Main Orchestration Loop
     while (currentFetchBlock <= chainHead && !this.isShuttingDown) {
         
-        // 0. Check Backpressure (S3 Uploads)
+        // 0. Check Scheduled Backup
+        if (Date.now() - lastBackupTime > backupInterval) {
+            await this.performScheduledBackup();
+            lastBackupTime = Date.now();
+        }
+
+        // 1. Check Backpressure (S3 Uploads)
         if (this.uploadQueue.pending > 50) {
             await new Promise(resolve => setTimeout(resolve, 100));
             continue; // Re-check loop
@@ -286,9 +295,16 @@ export class UniversalIndexer {
       
       const pendingOneBlocks: OneBlockMeta[] = [];
       const bundleSize = this.config.indexer.bundleSize || 100;
-      
+      let lastBackupTime = Date.now();
+      const backupInterval = this.config.indexer.backupIntervalMs || 15 * 60 * 1000;
+
       while (!this.isShuttingDown) {
         try {
+            if (Date.now() - lastBackupTime > backupInterval) {
+                await this.performScheduledBackup();
+                lastBackupTime = Date.now();
+            }
+
             const chainHead = await this.fetcher.getChainHead();
             
             if (lastProcessedBlock >= chainHead) {
@@ -327,6 +343,31 @@ export class UniversalIndexer {
             this.logger.error(`Error in live indexing loop: ${error.message}`);
             await new Promise(resolve => setTimeout(resolve, this.config.indexer.pollIntervalMs));
         }
+      }
+  }
+
+  private async performScheduledBackup() {
+      this.logger.info("Performing scheduled state backup...");
+      
+      // Drain queues to ensure DB consistency
+      this.logger.info(`Waiting for queues to drain (${this.uploadQueue.pending} uploads, ${this.indexQueue.pending} writes)...`);
+      await this.uploadQueue.onIdle();
+      await this.indexQueue.onIdle();
+      
+      try {
+          this.logger.info("Closing database for backup...");
+          await this.indexManager.close();
+          
+          await this.backupService.backup(this.config.storage.leveldbPath);
+          
+          this.logger.info("Re-opening database...");
+          await this.indexManager.open();
+          this.logger.info("Scheduled backup complete. Resuming indexing.");
+          
+      } catch (e: any) {
+          this.logger.error(`Scheduled backup failed: ${e.message}`);
+          // Try to re-open if it failed closed
+          try { await this.indexManager.open(); } catch {}
       }
   }
 }

@@ -12,7 +12,8 @@
     "maxConcurrentBatches": 25,
     "pollIntervalMs": 2000,
     "checkpointIntervalBlocks": 1000,
-    "mergePartialBundles": true
+    "mergePartialBundles": true,
+    "backupIntervalMs": 300000
   },
   "storage": {
     "dataDir": "./run-data",
