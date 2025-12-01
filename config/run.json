@@ -6,10 +6,10 @@
     "blockTimeMs": 1000
   },
   "indexer": {
-    "batchSize": 200,
-    "processingBatchSize": 2000,
+    "batchSize": 50,
+    "processingBatchSize": 3000,
     "bundleSize": 1000,
-    "maxConcurrentBatches": 10,
+    "maxConcurrentBatches": 60,
     "pollIntervalMs": 2000,
     "checkpointIntervalBlocks": 1000,
     "mergePartialBundles": true,
