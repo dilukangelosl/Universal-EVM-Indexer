@@ -43,7 +43,14 @@ export class JsonRpcClient {
 
         if (attempt < this.config.retries - 1) {
           this.rotateEndpoint();
-          const delay = this.config.retryDelayMs * Math.pow(2, attempt);
+          
+          // Special handling for Rate Limits (429)
+          let delay = this.config.retryDelayMs * Math.pow(2, attempt);
+          if (error.message.includes('429')) {
+              delay += 5000 + Math.random() * 5000; // Add 5-10s jitter
+              this.logger.warn(`Hit Rate Limit (429). Pausing for ${Math.round(delay)}ms`);
+          }
+          
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -72,7 +79,13 @@ export class JsonRpcClient {
 
         if (attempt < this.config.retries - 1) {
           this.rotateEndpoint();
-          const delay = this.config.retryDelayMs * Math.pow(2, attempt);
+          
+          let delay = this.config.retryDelayMs * Math.pow(2, attempt);
+          if (error.message.includes('429')) {
+              delay += 5000 + Math.random() * 5000;
+              this.logger.warn(`Hit Rate Limit (429) in batch. Pausing for ${Math.round(delay)}ms`);
+          }
+
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }

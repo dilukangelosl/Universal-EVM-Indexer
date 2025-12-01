@@ -262,25 +262,43 @@ export class UniversalIndexer {
     const bundle = await this.merger.mergeBundles(startBlock, oneBlocks, blocks);
     
     this.uploadQueue.add(async () => {
-        try {
-            const isLocalMode = this.config.s3.endpoint?.startsWith('file://');
-            const hasCreds = !!(this.config.s3.accessKeyId && this.config.s3.secretAccessKey);
+        let retries = 5;
+        while (retries > 0) {
+            try {
+                const isLocalMode = this.config.s3.endpoint?.startsWith('file://');
+                const hasCreds = !!(this.config.s3.accessKeyId && this.config.s3.secretAccessKey);
 
-            if (!hasCreds && !isLocalMode) {
-                 this.logger.warn("Skipping S3 upload (no credentials and not local mode)");
-            } else {
-                 bundle.s3Key = await this.s3Uploader.uploadMergedBlock(bundle);
+                if (!hasCreds && !isLocalMode) {
+                     this.logger.warn("Skipping S3 upload (no credentials and not local mode)");
+                } else {
+                     bundle.s3Key = await this.s3Uploader.uploadMergedBlock(bundle);
+                }
+                
+                // We queue indexing only if upload succeeded
+                this.indexQueue.add(async () => {
+                    await this.indexManager.updateIndexes(bundle, blocks);
+                    this.logger.info(`Indexed bundle ${bundle.startBlock}-${bundle.endBlock} (saved to state)`);
+                });
+                
+                await Promise.all(oneBlocks.map(m => unlink(m.localPath).catch(() => {})));
+                return; // Success
+
+            } catch (e: any) {
+                retries--;
+                this.logger.error({
+                    msg: `Upload/Index pipeline failed for ${startBlock}`,
+                    error: e.message,
+                    stack: e.stack,
+                    retriesLeft: retries
+                });
+                
+                if (retries === 0) {
+                    this.logger.fatal(`CRITICAL: Bundle ${startBlock} failed permanently. Data logic corrupted.`);
+                } else {
+                    const delay = 5000 + Math.random() * 5000;
+                    await new Promise(r => setTimeout(r, delay));
+                }
             }
-            
-            this.indexQueue.add(async () => {
-                await this.indexManager.updateIndexes(bundle, blocks);
-                this.logger.info(`Indexed bundle ${bundle.startBlock}-${bundle.endBlock} (saved to state)`);
-            });
-            
-            await Promise.all(oneBlocks.map(m => unlink(m.localPath).catch(() => {})));
-            
-        } catch (e: any) {
-            this.logger.error(`Upload/Index pipeline failed for ${startBlock}: ${e.message}`);
         }
     });
   }
