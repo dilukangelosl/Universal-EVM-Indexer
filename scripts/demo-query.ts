@@ -10,23 +10,23 @@ async function runDemo() {
     const config = loadConfig('config/run.json');
     const logger = pino({ level: 'info', transport: { target: 'pino-pretty' } });
 
-    // Override S3 to local if needed or assumes data is there
-    // For demo, we point to local dir explicitly
-    const localS3Config = {
-        ...config.s3,
-        endpoint: 'file://' + config.storage.dataDir + '/merged-blocks',
-        accessKeyId: 'dummy',
-        secretAccessKey: 'dummy'
-    };
+    // Check if we are in local mode or cloud mode
+    const isLocalConfig = config.s3.endpoint?.startsWith('file://');
+    
+    // Ensure we use the loaded config (which supports Env Vars for credentials)
+    const s3Config = config.s3;
 
-    // Check if any data exists
-    if (!fs.existsSync(localS3Config.endpoint.replace('file://', ''))) {
-        logger.error("No merged blocks found locally. Please run the indexer first.");
-        process.exit(1);
+    if (isLocalConfig) {
+        // Check if any data exists locally
+        const localPath = s3Config.endpoint!.replace('file://', '');
+        if (!fs.existsSync(localPath)) {
+            logger.error(`No merged blocks found locally at ${localPath}. Please run the indexer first.`);
+            process.exit(1);
+        }
     }
 
     const indexManager = new IndexManager(config.storage.leveldbPath);
-    const s3Uploader = new S3Uploader(localS3Config); // Local mode
+    const s3Uploader = new S3Uploader(s3Config);
     await s3Uploader.init();
 
     const queryService = new QueryServiceImpl(indexManager, s3Uploader);
@@ -43,10 +43,11 @@ async function runDemo() {
         process.exit(0);
     }
 
-    // 2. Fetch a specific block (e.g., 100)
-    const targetBlock = 100;
+    // 2. Fetch a specific block (use a recently merged block)
+    const targetBlock = state.lastMergedBlock - 50 > 0 ? state.lastMergedBlock - 50 : state.lastMergedBlock;
+    
     try {
-        logger.info(`Fetching block ${targetBlock}...`);
+        logger.info(`Fetching block ${targetBlock} (from state head)...`);
         const start = performance.now();
         const block = await queryService.getBlock(targetBlock);
         const end = performance.now();
@@ -58,11 +59,14 @@ async function runDemo() {
         logger.error(`Failed to fetch block ${targetBlock}: ${e.message}`);
     }
 
-    // 3. Fetch events/logs (Scan for any logs in first bundle)
+    // 3. Fetch events/logs (Scan for any logs in last bundle)
     // Since we don't know a contract address, let's scan a range and inspect content.
     try {
-        logger.info("Scanning for blocks 1-100...");
-        const blocks = await queryService.getBlockRange(1, 100);
+        const scanStart = Math.max(1, state.lastMergedBlock - 99);
+        const scanEnd = state.lastMergedBlock;
+        logger.info(`Scanning for blocks ${scanStart}-${scanEnd}...`);
+        
+        const blocks = await queryService.getBlockRange(scanStart, scanEnd);
         let totalLogs = 0;
         let sampleLog: any = null;
         
@@ -84,7 +88,7 @@ async function runDemo() {
             // 4. Query events for that contract
             logger.info(`Querying events for contract ${addr} using Index...`);
             const startQ = performance.now();
-            const events = await queryService.getEventsForContract(addr, { startBlock: 1, endBlock: 100 });
+            const events = await queryService.getEventsForContract(addr, { startBlock: scanStart, endBlock: scanEnd });
             const endQ = performance.now();
             
             logger.info(`Found ${events.length} events for ${addr} in ${(endQ-startQ).toFixed(2)}ms`);
