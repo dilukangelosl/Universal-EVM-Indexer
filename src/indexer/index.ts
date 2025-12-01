@@ -222,11 +222,11 @@ export class UniversalIndexer {
         }
     }
     
-    // Drain remaining
-    while (pendingProcessing.length > 0) {
+    // Drain remaining (only if not shutting down, otherwise abort/pause)
+    while (pendingProcessing.length > 0 && !this.isShuttingDown) {
         const metas = await pendingProcessing.shift()!;
         pendingMeta.push(...metas);
-        while (pendingMeta.length >= bundleSize) {
+        while (pendingMeta.length >= bundleSize && !this.isShuttingDown) {
             await this.mergeAndUpload(pendingMeta.splice(0, bundleSize));
         }
     }
