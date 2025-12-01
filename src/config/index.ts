@@ -13,6 +13,7 @@ const ConfigSchema = z.object({
   indexer: z.object({
     batchSize: z.number().default(20), // RPC batch limit (conservative default)
     processingBatchSize: z.number().default(100), // Indexer loop size (fetch/process/write count)
+    bundleSize: z.number().default(100), // Number of blocks per merged bundle file
     maxConcurrentBatches: z.number().default(10), // Parallel RPC requests
     pollIntervalMs: z.number().default(2000),
     checkpointIntervalBlocks: z.number().default(1000),

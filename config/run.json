@@ -8,6 +8,7 @@
   "indexer": {
     "batchSize": 20,
     "processingBatchSize": 1000,
+    "bundleSize": 1000,
     "maxConcurrentBatches": 50,
     "pollIntervalMs": 2000,
     "checkpointIntervalBlocks": 1000,

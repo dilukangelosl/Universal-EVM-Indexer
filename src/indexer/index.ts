@@ -23,6 +23,7 @@ export interface IndexerConfig {
   indexer: {
     batchSize: number;
     processingBatchSize: number;
+    bundleSize?: number; // Number of blocks per merged bundle file
     maxConcurrentBatches: number;  // How many RPC batches in flight
     pollIntervalMs: number;
     checkpointIntervalBlocks: number;
@@ -88,15 +89,14 @@ export class UniversalIndexer {
     
     // Pipeline buffer
     // Calculate target concurrency based on processingBatchSize (desired blocks in flight)
-    // If processingBatchSize is 1000 and batchSize is 20, we need 50 concurrent batches.
-    // We also respect maxConcurrentBatches as a hard limit if needed, or treat processingBatchSize as the driver.
-    // Let's treat processingBatchSize as target buffer size.
     const targetBuffer = this.config.indexer.processingBatchSize || 100;
     const concurrency = Math.ceil(targetBuffer / this.config.indexer.batchSize);
+    // Bundle size handling - use config or default to 100
+    const bundleSize = this.config.indexer.bundleSize || 100;
     
-    this.logger.info(`Pipeline configured: Buffer ${targetBuffer} blocks (${concurrency} concurrent batches of ${this.config.indexer.batchSize})`);
+    this.logger.info(`Pipeline configured: Buffer ${targetBuffer} blocks (${concurrency} concurrent batches of ${this.config.indexer.batchSize}). Merging ${bundleSize} blocks/bundle.`);
 
-    // Since merging requires 100-block bundles, we should ensure we don't process too far ahead 
+    // Since merging requires bundleSize blocks, we should ensure we don't process too far ahead 
     // but enough to keep pipelines full.
     
     const pendingProcessing: Promise<OneBlockMeta[]>[] = [];
@@ -106,7 +106,7 @@ export class UniversalIndexer {
     while (currentFetchBlock <= chainHead && !this.isShuttingDown) {
         
         // 0. Check Backpressure (S3 Uploads)
-        // If we have too many pending uploads (e.g. > 50 bundles = 5000 blocks), pause fetching
+        // If we have too many pending uploads (e.g. > 50 bundles), pause fetching
         if (this.uploadQueue.pending > 50) {
             await new Promise(resolve => setTimeout(resolve, 100));
             continue; // Re-check loop
@@ -134,8 +134,8 @@ export class UniversalIndexer {
             pendingMeta.push(...metas);
             
             // 3. Check for Merge
-            while (pendingMeta.length >= 100) {
-                const chunk = pendingMeta.splice(0, 100);
+            while (pendingMeta.length >= bundleSize) {
+                const chunk = pendingMeta.splice(0, bundleSize);
                 // Verify continuity?
                 // Assuming fetch logic guarantees order (it does, we push promises in order).
                 await this.mergeAndUpload(chunk);
@@ -154,8 +154,9 @@ export class UniversalIndexer {
     while (pendingProcessing.length > 0) {
         const metas = await pendingProcessing.shift()!;
         pendingMeta.push(...metas);
-        while (pendingMeta.length >= 100) {
-            await this.mergeAndUpload(pendingMeta.splice(0, 100));
+        const bundleSize = this.config.indexer.bundleSize || 100;
+        while (pendingMeta.length >= bundleSize) {
+            await this.mergeAndUpload(pendingMeta.splice(0, bundleSize));
         }
     }
     
@@ -219,7 +220,7 @@ export class UniversalIndexer {
             
             // Cleanup
             // To be safe, only cleanup if uploaded?
-            // PRD says "one-blocks/ (temp)".
+            // Prd says "one-blocks/ (temp)".
             // We should cleanup after merge is done and bundle created.
             // If upload fails, bundle logic allows re-upload?
             // We need to keep one-blocks if we want to re-merge?
@@ -276,8 +277,9 @@ export class UniversalIndexer {
                 lastProcessedBlock = res.blockNumber;
             }
             
-            while (pendingOneBlocks.length >= 100) {
-              const toMerge = pendingOneBlocks.splice(0, 100);
+            const bundleSize = this.config.indexer.bundleSize || 100;
+            while (pendingOneBlocks.length >= bundleSize) {
+              const toMerge = pendingOneBlocks.splice(0, bundleSize);
               await this.mergeAndUpload(toMerge);
             }
             
