@@ -27,6 +27,7 @@ export class IndexManager {
   }
 
   async open() {
+    // Explicit open call
     await this.db.open();
   }
 
