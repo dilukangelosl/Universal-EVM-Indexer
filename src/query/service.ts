@@ -45,9 +45,7 @@ export class QueryServiceImpl implements QueryService {
   }
   
   async init() {
-     if (!this.formatter['zstd']) {
-         await this.formatter.init();
-     }
+     await this.formatter.init();
   }
   
   async getBlock(blockNumber: number): Promise<Block> {

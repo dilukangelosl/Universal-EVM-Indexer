@@ -1,6 +1,5 @@
 import { sf } from './compiled.js';
-import { deflateSync, inflateSync } from 'zlib';
-import { ZstdCodec } from 'zstd-codec';
+import { gzipSync, gunzipSync } from 'zlib';
 
 const { Block } = sf.apechain.type.v1;
 type Block = sf.apechain.type.v1.Block;
@@ -22,19 +21,13 @@ export interface MergedBundle {
 }
 
 export class DbinFormatter {
-  private zstd: any;
 
   async init() {
-    return new Promise<void>((resolve) => {
-      ZstdCodec.run((binding) => {
-        this.zstd = new binding.Simple();
-        resolve();
-      });
-    });
+    // No-op with zlib (native)
+    return Promise.resolve();
   }
 
   createBundle(blocks: Block[], startBlock: number, endBlock: number): MergedBundle {
-    if (!this.zstd) throw new Error('Zstd not initialized');
 
     const chunks: Buffer[] = [];
 
@@ -58,9 +51,10 @@ export class DbinFormatter {
     }
 
     const merged = Buffer.concat(chunks);
-    const compressed = Buffer.from(this.zstd.compress(merged));
+    // Use GZIP for compression (Native, stable)
+    const compressed = gzipSync(merged);
 
-    const filename = `${String(startBlock).padStart(10, '0')}-${String(endBlock).padStart(10, '0')}.dbin.zst`;
+    const filename = `${String(startBlock).padStart(10, '0')}-${String(endBlock).padStart(10, '0')}.dbin.gz`;
     
     // Calculate checksum (SHA-256)
     const hasher = new Bun.CryptoHasher("sha256");
@@ -79,9 +73,9 @@ export class DbinFormatter {
   }
 
   decodeBundle(data: Buffer): Block[] {
-    if (!this.zstd) throw new Error('Zstd not initialized');
-
-    const decompressed = Buffer.from(this.zstd.decompress(data));
+    // Use GZIP for decompression
+    const decompressed = gunzipSync(data);
+    
     let offset = 0;
 
     // Magic
