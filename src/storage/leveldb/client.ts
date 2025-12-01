@@ -26,6 +26,10 @@ export class IndexManager {
     await this.db.close();
   }
 
+  async open() {
+    await this.db.open();
+  }
+
   async getState(): Promise<IndexerState | null> {
     try {
         const data = await this.db.get('st:indexer');

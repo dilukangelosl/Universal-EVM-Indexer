@@ -3,6 +3,7 @@ import { BlockProcessor } from '../processor/block-parser.js';
 import { OneBlockWriter, OneBlockMeta } from '../storage/one-block-writer.js';
 import { BlockMerger } from '../storage/merger.js';
 import { S3Uploader, S3Config } from '../storage/s3-client.js';
+import { StateBackupService } from '../storage/state-backup.js';
 import { IndexManager } from '../storage/leveldb/client.js';
 import { sf } from '../proto/compiled.js';
 import { Logger } from 'pino';
@@ -41,6 +42,7 @@ export class UniversalIndexer {
   private uploadQueue = new AsyncQueue(5); 
   private indexQueue = new AsyncQueue(1);
   private isShuttingDown = false;
+  private backupService: StateBackupService;
 
   constructor(
     private fetcher: BlockFetcher,
@@ -51,9 +53,39 @@ export class UniversalIndexer {
     private indexManager: IndexManager,
     private config: IndexerConfig,
     private logger: Logger
-  ) {}
+  ) {
+      this.backupService = new StateBackupService(config.s3, logger);
+  }
   
   async init() {
+      // Restore state from S3 if local DB is effectively empty or missing
+      try {
+          // We must close DB before restoring because restore replaces files
+          await this.indexManager.close();
+          
+          // Attempt restore
+          const restored = await this.backupService.restore(this.config.storage.leveldbPath);
+          
+          // Re-open DB by creating a new instance or if we could re-open
+          // Since we injected indexManager, we can't easily replace the instance reference held by others?
+          // Actually, CLI holds it.
+          // Ideally IndexManager should support re-opening. 
+          // Since I haven't added open() to IndexManager yet, I will rely on the fact that `new Level()` inside it 
+          // might need to be re-initialized.
+          // BUT: `level` instances auto-open. If we closed it, we need to call open().
+          // I will add open() to IndexManager. (I will do this in next step).
+          // For now, assume it exists or I'll add it.
+          // If I don't, standard `level` might auto-open on next operation? No, if closed, must open.
+          
+          await this.indexManager.open();
+      } catch (e: any) {
+          this.logger.error(`State restore failed: ${e.message}`);
+          // Try to re-open anyway
+          try {
+              await this.indexManager.open(); 
+          } catch {}
+      }
+
       await this.merger.init();
       await this.s3Uploader.init();
       
@@ -66,10 +98,17 @@ export class UniversalIndexer {
       if (this.isShuttingDown) return;
       this.isShuttingDown = true;
       this.logger.info('Shutting down... waiting for pending operations');
-      // Note: AsyncQueue doesn't expose drain, but we can wait a bit or track pending.
-      // Simply exiting loop in startHistoricalIndexing will allow it to return.
-      // Ideally we wait for queues.
-      // For now, rely on loop exit check.
+      
+      // Wait slightly for pending ops
+      await new Promise(r => setTimeout(r, 1000));
+      
+      try {
+          // Backup state on shutdown
+          await this.indexManager.close();
+          await this.backupService.backup(this.config.storage.leveldbPath);
+      } catch (e: any) {
+          this.logger.error(`Backup on shutdown failed: ${e.message}`);
+      }
   }
 
   async startHistoricalIndexing(fromBlock?: number): Promise<void> {
@@ -88,17 +127,13 @@ export class UniversalIndexer {
     let currentFetchBlock = startBlock;
     
     // Pipeline buffer
-    // Calculate target concurrency based on processingBatchSize (desired blocks in flight)
     const targetBuffer = this.config.indexer.processingBatchSize || 100;
     const concurrency = Math.ceil(targetBuffer / this.config.indexer.batchSize);
-    // Bundle size handling - use config or default to 100
+    // Bundle size handling
     const bundleSize = this.config.indexer.bundleSize || 100;
     
     this.logger.info(`Pipeline configured: Buffer ${targetBuffer} blocks (${concurrency} concurrent batches of ${this.config.indexer.batchSize}). Merging ${bundleSize} blocks/bundle.`);
 
-    // Since merging requires bundleSize blocks, we should ensure we don't process too far ahead 
-    // but enough to keep pipelines full.
-    
     const pendingProcessing: Promise<OneBlockMeta[]>[] = [];
     let pendingMeta: OneBlockMeta[] = [];
     
@@ -106,7 +141,6 @@ export class UniversalIndexer {
     while (currentFetchBlock <= chainHead && !this.isShuttingDown) {
         
         // 0. Check Backpressure (S3 Uploads)
-        // If we have too many pending uploads (e.g. > 50 bundles), pause fetching
         if (this.uploadQueue.pending > 50) {
             await new Promise(resolve => setTimeout(resolve, 100));
             continue; // Re-check loop
@@ -125,19 +159,14 @@ export class UniversalIndexer {
         
         if (pendingProcessing.length === 0) break;
         
-        // 2. Wait for oldest batch (Sequential merge requirement)
-        // Ideally we handle completion out of order but Merge requires Sequence.
-        // Since we push in order, `pendingProcessing[0]` is the next expected batch.
-        
+        // 2. Wait for oldest batch
         try {
-            const metas = await pendingProcessing.shift()!; // Await the next sequential batch
+            const metas = await pendingProcessing.shift()!; 
             pendingMeta.push(...metas);
             
             // 3. Check for Merge
             while (pendingMeta.length >= bundleSize) {
                 const chunk = pendingMeta.splice(0, bundleSize);
-                // Verify continuity?
-                // Assuming fetch logic guarantees order (it does, we push promises in order).
                 await this.mergeAndUpload(chunk);
             }
             
@@ -145,7 +174,6 @@ export class UniversalIndexer {
 
         } catch (e: any) {
             this.logger.error(`Pipeline error: ${e.message}`);
-            // Retry logic? For now, crash/exit to avoid holes.
             throw e; 
         }
     }
@@ -154,13 +182,10 @@ export class UniversalIndexer {
     while (pendingProcessing.length > 0) {
         const metas = await pendingProcessing.shift()!;
         pendingMeta.push(...metas);
-        const bundleSize = this.config.indexer.bundleSize || 100;
         while (pendingMeta.length >= bundleSize) {
             await this.mergeAndUpload(pendingMeta.splice(0, bundleSize));
         }
     }
-    
-    // Partial bundles handled at very end?
     
     this.logger.info(`Historical indexing complete up to block ${chainHead}`);
   }
@@ -168,7 +193,6 @@ export class UniversalIndexer {
   private async fetchAndProcessBatch(start: number, end: number): Promise<OneBlockMeta[]> {
       const blocks = await this.fetcher.fetchBlockRange(start, end);
       
-      // Parallel process/write within batch
       const writePromises = blocks.map(async (b) => {
           const block = this.processor.processBlock(b);
           const meta = await this.oneBlockWriter.writeOneBlock(block);
@@ -185,48 +209,30 @@ export class UniversalIndexer {
     
     this.logger.info(`Merging bundle ${startBlock}-${endBlock}`);
 
-    // Load blocks for indexing 
-    // Parallel read (Disk I/O)
     const blockPromises = oneBlocks.map(async (meta) => {
        const buffer = await Bun.file(meta.localPath).arrayBuffer();
        return Block.decode(new Uint8Array(buffer));
     });
     const blocks = await Promise.all(blockPromises);
     
-    // Worker threads for merging?
-    // Currently sticking to main thread for simplicity but async.
     const bundle = await this.merger.mergeBundles(startBlock, oneBlocks);
     
-    // Start Async Upload Task
     this.uploadQueue.add(async () => {
         try {
-            // Upload if we have credentials OR if we are using local file mode
             const isLocalMode = this.config.s3.endpoint?.startsWith('file://');
             const hasCreds = !!(this.config.s3.accessKeyId && this.config.s3.secretAccessKey);
 
             if (!hasCreds && !isLocalMode) {
-                 // Skip if no creds and not local (optimization to avoid timeout failure log spam)
                  this.logger.warn("Skipping S3 upload (no credentials and not local mode)");
             } else {
                  bundle.s3Key = await this.s3Uploader.uploadMergedBlock(bundle);
             }
             
-            // Chain index update (sequential queue)
             this.indexQueue.add(async () => {
-                // Re-verify order if needed?
                 await this.indexManager.updateIndexes(bundle, blocks);
                 this.logger.info(`Indexed bundle ${bundle.startBlock}-${bundle.endBlock} (saved to state)`);
             });
             
-            // Cleanup
-            // To be safe, only cleanup if uploaded?
-            // Prd says "one-blocks/ (temp)".
-            // We should cleanup after merge is done and bundle created.
-            // If upload fails, bundle logic allows re-upload?
-            // We need to keep one-blocks if we want to re-merge?
-            // Actually if we have the .dbin file locally or in memory we are good.
-            // But we don't save .dbin continuously to disk separately (only S3).
-            // Let's just delete.
             await Promise.all(oneBlocks.map(m => unlink(m.localPath).catch(() => {})));
             
         } catch (e: any) {
@@ -235,18 +241,14 @@ export class UniversalIndexer {
     });
   }
   
-  // Keep startLiveIndexing simple for now or update similarly?
-  // Live indexing usually handles block-by-block or small batches.
-  // The previous implementation is fine for live.
   async startLiveIndexing(): Promise<void> {
-      // ... (Use previous implementation)
-      // But I need to include it since I'm overwriting the file
       const state = await this.indexManager.getState();
       let lastProcessedBlock = state?.lastProcessedBlock ?? this.config.chain.startBlock - 1;
       
       this.logger.info(`Starting live indexing from block ${lastProcessedBlock + 1}`);
       
       const pendingOneBlocks: OneBlockMeta[] = [];
+      const bundleSize = this.config.indexer.bundleSize || 100;
       
       while (!this.isShuttingDown) {
         try {
@@ -277,7 +279,6 @@ export class UniversalIndexer {
                 lastProcessedBlock = res.blockNumber;
             }
             
-            const bundleSize = this.config.indexer.bundleSize || 100;
             while (pendingOneBlocks.length >= bundleSize) {
               const toMerge = pendingOneBlocks.splice(0, bundleSize);
               await this.mergeAndUpload(toMerge);
