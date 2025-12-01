@@ -77,6 +77,9 @@ export async function runCli() {
             await indexer.startLiveIndexing();
         } else {
             await indexer.startHistoricalIndexing(fromBlock);
+            // Continue to live indexing after historical catchup
+            logger.info('Historical indexing finished, switching to live mode...');
+            await indexer.startLiveIndexing();
         }
 
       } catch (error: any) {
