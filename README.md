@@ -1,27 +1,27 @@
 # Universal EVM Indexer
 
-A high-performance, **Firehose-compatible** blockchain indexer designed for any EVM-compatible chain (ApeChain, Ethereum, Berachain, etc.).
+A high-performance, Firehose-compatible blockchain indexer designed for any EVM-compatible chain (ApeChain, Ethereum, Berachain, etc.).
 
-It extracts raw block data via standard JSON-RPC, processes it into structured **Protobuf** messages (`sf.apechain.type.v1.Block`), and stores "flat files" (merged bundles) in **Object Storage** (S3, Backblaze B2, Cloudflare R2) while maintaining a local **LevelDB** index for ultra-fast random access queries.
+It extracts raw block data via standard JSON-RPC, processes it into structured Protobuf messages (`sf.apechain.type.v1.Block`), and stores "flat files" (merged bundles) in Object Storage (S3, Backblaze B2, Cloudflare R2) while maintaining a local LevelDB index for ultra-fast random access queries.
 
-**Author:** Diluk Angelo (https://x.com/cryptoangelodev)
+**Author:** Diluk Angelo
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
-*   **Node-Like Behavior**: Automatically syncs historical data and transitions to "Live Mode" to listen for new blocks forever.
+*   **Node-Like Behavior**: Automatically syncs historical data and transitions to "Live Mode" to listen for new blocks indefinitey.
 *   **High Throughput**: Fetches thousands of blocks per minute using concurrent batched RPC requests.
-*   **Cost-Effective Storage**: Native support for S3-compatible providers (Backblaze B2, R2, Wasabi) to minimize costs.
-*   **Resilient**: Auto-resumes from checkpoints (`LevelDB`) and repairs partial batches on restart.
-*   **Parallel Querying**: Built-in query service with cached and parallelized S3 fetching (2.5x faster than serial).
-*   **Dockerized**: Ready to deploy instantly with Docker Compose.
+*   **Cost-Effective Storage**: Native support for S3-compatible providers (Backblaze B2, R2, Wasabi) to minimize operational costs.
+*   **Resilient**: Auto-resumes from checkpoints (LevelDB) and automatically repairs partial batches on restart.
+*   **Parallel Querying**: Built-in query service with cached and parallelized S3 fetching (2.5x faster than typical serial requests).
+*   **Dockerized**: Production-ready setup included via Docker Compose.
 
 ---
 
-## 🛠️ Quick Start (Docker)
+## Quick Start (Docker)
 
-The easiest way to run the indexer is using Docker.
+The recommended way to run the indexer is using Docker.
 
 ### 1. Configure Credentials
 Create a `.env` file in the root directory to set your Cloud Storage credentials.
@@ -56,7 +56,7 @@ The indexer will start, fetch blocks, merge them into bundles, and upload them t
 
 ---
 
-## 💻 Development & Local Run
+## Development & Local Run
 
 If you prefer running without Docker (requires [Bun](https://bun.sh)):
 
@@ -81,11 +81,11 @@ This script will:
 1.  Connect to your Cloud Storage (B2/S3).
 2.  Fetch the latest indexer state.
 3.  Download and inspect a block bundle.
-4.  **Benchmark** parallel download speeds.
+4.  **Benchmark** parallel download speeds versus serial execution.
 
 ---
 
-## ⚙️ Configuration Guide
+## Configuration Guide
 
 Key settings in `config/run.json`:
 
@@ -97,14 +97,14 @@ Key settings in `config/run.json`:
 | `s3` | `endpoint` | Custom endpoint for non-AWS providers (e.g., Backblaze, R2). |
 
 ### Storage Providers
-This indexer is optimized for:
+This indexer includes specific optimizations for:
 *   **Cloudflare R2**: Zero egress fees (Recommended for high read usage).
 *   **Backblaze B2**: Lowest storage cost (Recommended for archival).
 *   **AWS S3**: Standard industry support.
 
 ---
 
-## 🔧 Architecture
+## Architecture
 
 1.  **BlockFetcher**: Parallel RPC batching with automatic retry/backoff.
 2.  **BlockProcessor**: Converts raw JSON-RPC to strictly typed Protobuf.
