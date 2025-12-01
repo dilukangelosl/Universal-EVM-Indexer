@@ -99,11 +99,18 @@ export class UniversalIndexer {
       this.isShuttingDown = true;
       this.logger.info('Shutting down... waiting for pending operations');
       
-      // Wait slightly for pending ops
+      // Wait for queues to drain
+      this.logger.info(`Waiting for ${this.uploadQueue.pending} uploads and ${this.indexQueue.pending} index operations...`);
+      
+      await this.uploadQueue.onIdle();
+      await this.indexQueue.onIdle();
+
+      // Wait for any final cleanup
       await new Promise(r => setTimeout(r, 1000));
       
       try {
           // Backup state on shutdown
+          this.logger.info('Closing database and performing backup...');
           await this.indexManager.close();
           await this.backupService.backup(this.config.storage.leveldbPath);
       } catch (e: any) {

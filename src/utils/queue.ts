@@ -32,4 +32,10 @@ export class AsyncQueue {
   get pending() {
       return this.queue.length + this.running;
   }
+
+  async onIdle(): Promise<void> {
+    while (this.pending > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
 }
