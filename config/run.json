@@ -1,0 +1,32 @@
+{
+  "chain": {
+    "chainId": 33139,
+    "rpcEndpoints": ["https://rpc.apechain.com"],
+    "startBlock": 0,
+    "blockTimeMs": 1000
+  },
+  "indexer": {
+    "batchSize": 20,
+    "processingBatchSize": 1000,
+    "maxConcurrentBatches": 50,
+    "pollIntervalMs": 2000,
+    "checkpointIntervalBlocks": 1000,
+    "mergePartialBundles": true
+  },
+  "storage": {
+    "dataDir": "./run-data",
+    "oneBlocksDir": "./run-data/one-blocks",
+    "leveldbPath": "./run-data/leveldb"
+  },
+  "s3": {
+    "bucket": "apechain-local-test",
+    "region": "us-east-1",
+    "prefix": "apechain-indexer",
+    "endpoint": "file://./run-data/merged-blocks",
+    "maxRetries": 1
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty"
+  }
+}

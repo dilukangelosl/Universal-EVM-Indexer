@@ -1,0 +1,10 @@
+node_modules/
+run-data/
+tests/temp_*/
+*.log
+.DS_Store
+dist/
+out/
+.env
+.env.local
+IMPLEMENTATION_REPORT.md
