@@ -242,6 +242,8 @@ export class UniversalIndexer {
   }
   
   async startLiveIndexing(): Promise<void> {
+      if (this.isShuttingDown) return;
+
       const state = await this.indexManager.getState();
       let lastProcessedBlock = state?.lastProcessedBlock ?? this.config.chain.startBlock - 1;
       
