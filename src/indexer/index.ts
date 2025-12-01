@@ -250,7 +250,7 @@ export class UniversalIndexer {
     });
     const blocks = await Promise.all(blockPromises);
     
-    const bundle = await this.merger.mergeBundles(startBlock, oneBlocks);
+    const bundle = await this.merger.mergeBundles(startBlock, oneBlocks, blocks);
     
     this.uploadQueue.add(async () => {
         try {

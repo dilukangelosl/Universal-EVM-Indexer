@@ -19,24 +19,28 @@ export class BlockMerger {
     }
   }
 
-  async mergeBundles(startBlock: number, oneBlocks: OneBlockMeta[]): Promise<MergedBundle> {
-    const endBlock = startBlock + this.BUNDLE_SIZE - 1;
+  async mergeBundles(startBlock: number, oneBlocks: OneBlockMeta[], loadedBlocks?: sf.apechain.type.v1.Block[]): Promise<MergedBundle> {
+    // Use configured bundle size if possible, or default to 100, but here we just calculate endBlock based on input
+    // However, the header defines range. Ideally we respect config.
+    // Assuming oneBlocks contains the correct range.
+    const endBlock = oneBlocks[oneBlocks.length-1].blockNumber; // Use actual end block from input
     
-    // Verify sequence
-    // oneBlocks might not be exactly 100 if we are handling partials, but mergeBundles usually implies full bundle.
-    // Let's assume caller ensures blocks are loaded.
-    // Actually, usually merger reads from disk or is passed list of meta.
-    
-    const blocks: sf.apechain.type.v1.Block[] = [];
-    
-    // Read blocks from disk
-    for (const meta of oneBlocks) {
-       const buffer = await Bun.file(meta.localPath).arrayBuffer();
-       const block = Block.decode(new Uint8Array(buffer));
-       blocks.push(block);
+    let blocks: sf.apechain.type.v1.Block[];
+
+    if (loadedBlocks) {
+        blocks = loadedBlocks;
+    } else {
+        blocks = [];
+        // Read blocks from disk
+        for (const meta of oneBlocks) {
+            const buffer = await Bun.file(meta.localPath).arrayBuffer();
+            const block = Block.decode(new Uint8Array(buffer));
+            blocks.push(block);
+        }
     }
 
     // Sort just in case
+    // Using explicit Long conversion for safety
     // Using explicit Long conversion for safety
     blocks.sort((a, b) => {
         const numA = typeof a.number === 'number' ? a.number : a.number.toNumber();
