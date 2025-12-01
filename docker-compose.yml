@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  indexer:
+    build: .
+    image: universal-evm-indexer
+    container_name: apechain-indexer
+    restart: always
+    volumes:
+      - ./run-data:/app/run-data
+      - ./config:/app/config
+    environment:
+      - LOG_LEVEL=info
+    # Mount config/run.json to configure the indexer
+    # Ensure config/run.json exists locally
