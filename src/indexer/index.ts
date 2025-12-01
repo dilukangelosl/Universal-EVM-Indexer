@@ -39,7 +39,7 @@ export interface IndexerConfig {
 }
 
 export class UniversalIndexer {
-  private uploadQueue = new AsyncQueue(5); 
+  private uploadQueue = new AsyncQueue(2); 
   private indexQueue = new AsyncQueue(1);
   private isShuttingDown = false;
   private backupService: StateBackupService;

@@ -7,7 +7,7 @@
   },
   "indexer": {
     "batchSize": 50,
-    "processingBatchSize": 2000,
+    "processingBatchSize": 1000,
     "bundleSize": 1000,
     "maxConcurrentBatches": 25,
     "pollIntervalMs": 2000,
