@@ -13,8 +13,8 @@ COPY . .
 # Create run-data directory (for volume mount)
 RUN mkdir -p run-data
 
-# Expose metrics port if applicable (none specifically in config but good practice)
-# EXPOSE 9102 
+# Expose API port
+EXPOSE 3000
 
-# Start command
-CMD ["bun", "run", "src/index.ts", "start", "-c", "config/run.json"]
+# Start command with API server enabled
+CMD ["bun", "run", "src/index.ts", "start", "-c", "config/run.json", "--serve", "--port", "3000"]

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { loadConfig } from './config/index.js';
 import { UniversalIndexer } from './indexer/index.js';
+import { ApiServer } from './server/index.js';
 import { BlockFetcher } from './fetcher/index.js';
 import { BlockProcessor } from './processor/block-parser.js';
 import { OneBlockWriter } from './storage/one-block-writer.js';
@@ -25,6 +26,8 @@ export async function runCli() {
     .option('-c, --config <path>', 'Path to config file', 'config/default.json')
     .option('--from-block <number>', 'Start indexing from specific block (overrides state)')
     .option('--mode <mode>', 'Indexing mode: historical or live', 'historical')
+    .option('--serve', 'Start the API server alongside the indexer')
+    .option('--port <number>', 'Port for the API server', '3000')
     .action(async (options) => {
       try {
         const config = loadConfig(options.config);
@@ -71,6 +74,12 @@ export async function runCli() {
         
         await indexer.init();
         
+        // Start API Server if requested
+        if (options.serve) {
+             const server = new ApiServer(config, logger, indexManager, parseInt(options.port, 10));
+             server.start(); // Start async, don't await to allow indexing to proceed
+        }
+        
         const fromBlock = options.fromBlock ? parseInt(options.fromBlock, 10) : undefined;
         
         if (options.mode === 'live') {
@@ -86,6 +95,29 @@ export async function runCli() {
          console.error('Fatal error:', error);
          process.exit(1);
       }
+    });
+
+  program
+    .command('serve')
+    .description('Start the API server to expose indexed data')
+    .option('-c, --config <path>', 'Path to config file', 'config/default.json')
+    .option('-p, --port <number>', 'Port to listen on', '3000')
+    .action(async (options) => {
+        try {
+            const config = loadConfig(options.config);
+            const logger = pino({
+                level: config.logging.level,
+                transport: config.logging.format === 'pretty' ? { target: 'pino-pretty' } : undefined
+            });
+            
+            const server = new ApiServer(config, logger, undefined, parseInt(options.port, 10));
+            await server.start();
+            
+            // Keep alive
+        } catch (error: any) {
+             console.error('Fatal error:', error);
+             process.exit(1);
+        }
     });
 
   await program.parseAsync(process.argv);
