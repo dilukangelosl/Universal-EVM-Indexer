@@ -46,22 +46,26 @@ export class S3Uploader {
         // Don't disable yet, might rely on environment or role (e.g. EC2/Pod role)
     }
     
-    this.client = new S3Client({
+    const s3Config = {
       region: config.region,
       endpoint: config.endpoint,
+      forcePathStyle: !!config.endpoint,
       credentials: (config.accessKeyId && config.secretAccessKey) ? {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey
       } : undefined,
       maxAttempts: config.maxRetries
-    });
+    };
+    
+    // Debug Log S3 Config
+    console.log(`S3 Config: Region=${s3Config.region}, Endpoint=${s3Config.endpoint}, ForcePathStyle=${s3Config.forcePathStyle}, HasCreds=${!!s3Config.credentials}`);
+
+    this.client = new S3Client(s3Config);
     this.formatter = formatter || new DbinFormatter();
   }
 
   async init() {
-    if (!this.formatter['zstd']) {
-        await this.formatter.init();
-    }
+    await this.formatter.init();
   }
 
   async uploadMergedBlock(bundle: MergedBundle): Promise<string> {
@@ -125,6 +129,14 @@ export class S3Uploader {
       
       return key;
     } catch (error: any) {
+        console.error(`S3 Upload Error Details for ${key}:`, {
+            name: error.name,
+            message: error.message,
+            Code: error.Code,
+            $metadata: error.$metadata,
+            full: error
+        });
+
         // Detect invalid credentials or access denied
         if (error.name === 'InvalidAccessKeyId' || error.name === 'AccessDenied' || error.name === 'CredentialsError') {
             console.warn(`S3 Upload disabled due to auth error: ${error.message}`);
