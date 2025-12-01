@@ -137,6 +137,11 @@ export class UniversalIndexer {
     const pendingProcessing: Promise<OneBlockMeta[]>[] = [];
     let pendingMeta: OneBlockMeta[] = [];
     
+    // ETA Tracking
+    const startTime = Date.now();
+    let totalProcessed = 0;
+    let lastLogTime = Date.now();
+
     // Main Orchestration Loop
     while (currentFetchBlock <= chainHead && !this.isShuttingDown) {
         
@@ -163,6 +168,29 @@ export class UniversalIndexer {
         try {
             const metas = await pendingProcessing.shift()!; 
             pendingMeta.push(...metas);
+            
+            // Update metrics
+            totalProcessed += metas.length;
+            
+            // Log ETA every 10 seconds
+            if (Date.now() - lastLogTime > 10000) {
+                const elapsed = (Date.now() - startTime) / 1000;
+                const bps = elapsed > 0 ? totalProcessed / elapsed : 0;
+                const remaining = chainHead - (!pendingMeta.length ? currentFetchBlock : parseMetaBlock(pendingMeta[pendingMeta.length-1]));
+                const etaSeconds = bps > 0 ? remaining / bps : 0;
+                
+                const eta = new Date(etaSeconds * 1000).toISOString().substr(11, 8); // HH:MM:SS
+                
+                this.logger.info({
+                    timestmap: new Date().toISOString(),
+                    progress: `${totalProcessed} blocks processed`,
+                    rate: `${bps.toFixed(1)} bps`,
+                    remaining: `${remaining} blocks`,
+                    ETA: eta
+                }, "Sync Progress");
+                
+                lastLogTime = Date.now();
+            }
             
             // 3. Check for Merge
             while (pendingMeta.length >= bundleSize) {
