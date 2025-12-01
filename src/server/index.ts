@@ -63,10 +63,13 @@ export class ApiServer {
               if (parts[3] === 'events') {
                   const start = url.searchParams.get('start') ? parseInt(url.searchParams.get('start')!, 10) : undefined;
                   const end = url.searchParams.get('end') ? parseInt(url.searchParams.get('end')!, 10) : undefined;
-                  
+                  const topicsParam = url.searchParams.get('topics');
+                  const topics = topicsParam ? topicsParam.split(',') : undefined;
+
                   const events = await this.queryService.getEventsForContract(address, {
                       startBlock: start,
-                      endBlock: end
+                      endBlock: end,
+                      topics: topics
                   });
                   
                   return Response.json(events.map(e => this.logToJson(e)));
