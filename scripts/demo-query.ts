@@ -97,6 +97,47 @@ async function runDemo() {
         logger.error(e);
     }
 
+    // 5. Benchmark: Parallel vs Serial S3 Fetch
+    // We will query blocks from different bundles to force S3 downloads/cache misses logic
+    if (state.lastMergedBlock > 2000) {
+        logger.info("--- Benchmark: Serial vs Parallel Random Access ---");
+        const numSamples = 20;
+        const step = 100; // 100 blocks = 1 bundle usually, ensuring different bundles
+        const startBlock = Math.max(1, state.lastMergedBlock - (numSamples * step));
+        
+        const targets: number[] = [];
+        for(let i=0; i<numSamples; i++) {
+             targets.push(startBlock + (i * step));
+        }
+        
+        logger.info(`Querying ${numSamples} blocks from different bundles (forcing S3 fetches)...`);
+        
+        // Clear cache hack? QueryService doesn't expose clear.
+        // We just re-instantiate service to ensure cold cache
+        const freshService = new QueryServiceImpl(indexManager, s3Uploader, 1); // Min cache size to force evictions/fetches
+        await freshService.init();
+
+        // Serial
+        const startSerial = performance.now();
+        for(const b of targets) {
+            await freshService.getBlock(b);
+        }
+        const endSerial = performance.now();
+        logger.info(`Serial Execution: ${(endSerial-startSerial).toFixed(2)}ms`);
+
+        // Parallel
+        // Re-instantiate for cold cache again
+        const freshService2 = new QueryServiceImpl(indexManager, s3Uploader, 1);
+        await freshService2.init();
+        
+        const startParallel = performance.now();
+        await Promise.all(targets.map(b => freshService2.getBlock(b)));
+        const endParallel = performance.now();
+        
+        logger.info(`Parallel Execution: ${(endParallel-startParallel).toFixed(2)}ms`);
+        logger.info(`Speedup: ${( (endSerial-startSerial) / (endParallel-startParallel) ).toFixed(2)}x`);
+    }
+
     await indexManager.close();
 }
 
