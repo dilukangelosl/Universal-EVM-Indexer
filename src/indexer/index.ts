@@ -186,7 +186,7 @@ export class UniversalIndexer {
                 const remaining = chainHead - (!pendingMeta.length ? currentFetchBlock : parseMetaBlock(pendingMeta[pendingMeta.length-1]));
                 const etaSeconds = bps > 0 ? remaining / bps : 0;
                 
-                const eta = new Date(etaSeconds * 1000).toISOString().substr(11, 8); // HH:MM:SS
+                const eta = formatDuration(etaSeconds); // HH:MM:SS or Xh Ym
                 
                 this.logger.info({
                     timestmap: new Date().toISOString(),
@@ -338,4 +338,18 @@ function parseMetaBlock(meta: OneBlockMeta): number {
 function parseMetaBlockWithBlock(block: Block): number {
     if (typeof block.number === 'number') return block.number;
     return (block.number as Long).toNumber();
+}
+
+function formatDuration(seconds: number): string {
+    if (seconds === Infinity || isNaN(seconds)) return 'Unknown';
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`;
+    
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ${minutes % 60}m`;
+    
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h ${minutes % 60}m`;
 }
