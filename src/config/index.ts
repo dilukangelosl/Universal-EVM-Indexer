@@ -68,6 +68,14 @@ export function loadConfig(configPath?: string): Config {
         if (!config.s3) config.s3 = {};
         config.s3.secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
   }
+  if (process.env.S3_ENDPOINT) {
+        if (!config.s3) config.s3 = {};
+        config.s3.endpoint = process.env.S3_ENDPOINT;
+  }
+  if (process.env.S3_REGION) {
+        if (!config.s3) config.s3 = {};
+        config.s3.region = process.env.S3_REGION;
+  }
   
   // For strict defaults if missing in file/env
   if (!config.s3 && !process.env.S3_BUCKET) {

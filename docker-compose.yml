@@ -9,6 +9,9 @@ services:
     volumes:
       - ./run-data:/app/run-data
       - ./config:/app/config
+    # Load environment variables from .env file
+    env_file:
+      - .env
     environment:
       - LOG_LEVEL=info
     # Mount config/run.json to configure the indexer

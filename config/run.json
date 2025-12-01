@@ -19,11 +19,13 @@
     "leveldbPath": "./run-data/leveldb"
   },
   "s3": {
-    "bucket": "apechain-local-test",
-    "region": "us-east-1",
-    "prefix": "apechain-indexer",
-    "endpoint": "file://./run-data/merged-blocks",
-    "maxRetries": 1
+    "bucket": "apechain-indexer",
+    "region": "us-east-005",
+    "prefix": "apechain-mainnet",
+    "endpoint": "https://s3.us-east-005.backblazeb2.com",
+    "accessKeyId": "",
+    "secretAccessKey": "",
+    "maxRetries": 3
   },
   "logging": {
     "level": "info",
